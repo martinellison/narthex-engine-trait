@@ -6,7 +6,7 @@ authors = ["Martin <m.e@acm.org>"]
 description = "Shared code (trait) for portable apps"
 readme = "README.md"
 repository = "https://github.com/martinellison/narthex-engine-trait"
-licence = "MPL-2.0"
+license = "MPL-2.0"
 keywords = ["portable", "cross-platform"]
 publish = true
 
