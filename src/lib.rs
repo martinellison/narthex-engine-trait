@@ -1,25 +1,63 @@
-/*! This file describes the interface between an `Engine` and a user interface.*/
+/*! 
+
+This system enables building portable apps that run on both PCs and Android mobile phones.
+
+There is an example repository that implements an example app (the classic Wumpus game) for both the PC and for Android mobile. The two platform implementations share a common back end ('engine') and otherwise use boilerplate code that differs little across applications.
+
+## Overall
+
+The system contains the following parts, each of which is in a GitHub repository. This section describes which of these parts need to be changed to implement a different app. Some parts do not require any change, some parts are examples that should not require much change, and the the *engine* crate will need to be written to provide the functionality of the new app.
+
+* **narthex-engine-trait** defines [EngineTrait]; this should not require any change to implement a new app.
+* **narthex-wumpus** is an example of the use of this framework. See the [GitHub page for narthex-wumpus](https://github.com/martinellison/narthex-wumpus) for this. The **narthex-wumpus** repository  contains:
+  * *engine* crate contains the code to implement the wumpus game, this implements [EngineTrait].
+  * *wumpus* crate is the front-end for the PC implementation of the game; this should require little change to implement a new app. 
+  * *wumpus-c* crate is C bindings for the *engine* crate; this should require little change to implement a new app.
+  * *Wumpus* is the Android code (Java etc) for the Android implementation of the game; this should require little change to implement a new app.
+* **narthex-web-app** is some code that makes it easier to put together the PC implementation of the app;  this should not require any change to implement a new app. See the [narthex-web-app documentation](https://docs.rs/narthex_engine_trait/0.1.0/narthex_web_app) for more information.
+
+This page describes the [EngineTrait] interface between an `Engine` and a user interface. This crate should not require any change to implement a new app.
+
+## Creating an engine (overall architecture)
+
+To create an app, you need to create the following types in your application. The engine (satisfies [EngineTrait]) does the application-specific functions. 
+
+1. At the start, the user interface will create a web view (a browser) for the engine. 
+1. The engine, at initialisation, is passed a `Config` (satisfies [ConfigTrait]) by the main program. 
+1. The user interface will call `engine.initial_html()` and the engine must return an HTML string. 
+1. Then, for each user input, the user interface passes an Action (satisfies [ActionTrait]) to the engine using `engine.execute(action)` and the engine must return a Response (satisfies [ResponseTrait]) back to the user interface. 
+1. Also, for application event, the user interface passes an [Event] to the engine using `engine.execute(action)` and the engine must return a Response (satisfies [ResponseTrait]) back to the user interface. 
+1. At the end, the engine will return a response with `response.shutdown_required()` and the user interface will terminate the application.
+
+*/
 use std::collections::HashMap;
 
 use anyhow::Result;
 use serde::Deserialize;
-/** The [EngineTrait] defines what an engine must be able to do */
+/** The [EngineTrait] defines what an engine must be able to do. The associated types will need to be set by the application author in accordance with the specific needs of the application. See the wumpus example. */
 pub trait EngineTrait {
     /// the configuration paramaeters for the engine, satisfying [ConfigTrait].
     type Config;
-    /// the configuration paramaeters for the engine, satisfying [ActionTrait].
+    /// the actions sent to the engine, satisfying [ActionTrait].
     type Action;
-    /// the action sent to the engine, satisfying [ResponseTrait].
+    /// the response sent from the engine, satisfying [ResponseTrait].
     type Response;
-    /** 'new' creates an Engine from a `config` and an [InterfaceType] */
+    /** `new` creates an Engine from a `config` and an [InterfaceType] */
     fn new(config: &Self::Config, interface_type: InterfaceType) -> Result<Self>
     where
         Self: Sized;
-    /** initial_html provides the initial HTML. */
+    /** `initial_html` provides the initial HTML for the web view. The HTML should provide the application's user interface including CSS and JavaScript. This Javascript (including `onclick` and similar) should:
+    
+* capture any user interface events (e.g. button clicks)
+  * construct an action including DOM input data
+  * cause `engine.execute(action)`
+  * understand the resulting response and update the user interface (DOM) accordingly
+* similarly for [Event]s
+     */
     fn initial_html(&mut self) -> Result<String>;
-    /** execute executes the user command (Action) and returns a Response. */
+    /** `execute` executes the user command (Action) and returns a Response. */
     fn execute(&mut self, action: Self::Action) -> Result<Self::Response>;
-    /** `handle_event` handles an event generated by the app */
+    /** `handle_event` handles an event generated by the app  and returns a Response */
     fn handle_event(&mut self, event: &Event) -> Result<Self::Response>;
     /// interface type
     fn get_interface_type(&self) -> InterfaceType;
@@ -40,15 +78,15 @@ pub trait ActionTrait {
 pub trait ResponseTrait {
     fn shutdown_required(&self) -> bool;
 }
-/** [Event]s are requirements for an event (generated by the execution environment and passed to the engine). Events are like actions but generated by the app not the user interface. */
+/** [Event]s are requirements for an event (generated by the execution environment and passed to the engine), for example app shutdown. Events are like actions but generated by the app not the user interface. There is a fixed list of [Event]s as they are based on the architecture of the platforms (PC, Android), but it may be necessary to add to the list e.g. to support other Android Activity events. */
 #[derive(Debug, Deserialize, Clone)]
 //#[repr(C)]
 pub enum Event {
     /// at start, after the user interface is ready
     Create,
-    /// asks for a summary of the engine state so that the app can be restarted
+    /// asks for a summary of the engine state (in the response) so that the app can be restarted (mobile only)
     SaveInstanceState,
-    /// asks to set the engine state
+    /// asks to set the engine state after the app has been temporarily shut down (mobile only)
     RestoreInstanceState(HashMap<String, String>),
     /// notify the engine that the app is being shut down
     Stop,
@@ -62,7 +100,7 @@ impl Event {
     }
 }
 #[derive(Debug, Clone, Copy, strum::Display)]
-/** type of execution environment e.g. PC, Android */
+/** type of execution environment e.g. PC, Android. This is passed to the engine to handle platform-specific functions.  */
 #[repr(C)]
 pub enum InterfaceType {
     PC,
