@@ -1,4 +1,4 @@
-/*! 
+/*!
 
 This system enables building portable apps that run on both PCs and Android mobile phones.
 
@@ -11,7 +11,7 @@ The system contains the following parts, each of which is in a GitHub repository
 * **narthex-engine-trait** defines [EngineTrait]; this should not require any change to implement a new app.
 * **narthex-wumpus** is an example of the use of this framework. See the [GitHub page for narthex-wumpus](https://github.com/martinellison/narthex-wumpus) for this. The **narthex-wumpus** repository  contains:
   * *engine* crate contains the code to implement the wumpus game, this implements [EngineTrait].
-  * *wumpus* crate is the front-end for the PC implementation of the game; this should require little change to implement a new app. 
+  * *wumpus* crate is the front-end for the PC implementation of the game; this should require little change to implement a new app.
   * *wumpus-c* crate is C bindings for the *engine* crate; this should require little change to implement a new app.
   * *Wumpus* is the Android code (Java etc) for the Android implementation of the game; this should require little change to implement a new app.
 * **narthex-web-app** is some code that makes it easier to put together the PC implementation of the app;  this should not require any change to implement a new app. See the [narthex-web-app documentation](https://docs.rs/narthex_engine_trait/0.1.0/narthex_web_app) for more information.
@@ -20,20 +20,20 @@ This page describes the [EngineTrait] interface between an `Engine` and a user i
 
 ## Creating an engine (overall architecture)
 
-To create an app, you need to create the following types in your application. The engine (satisfies [EngineTrait]) does the application-specific functions. 
+To create an app, you need to create the following types in your application. The engine (satisfies [EngineTrait]) does the application-specific functions.
 
-1. At the start, the user interface will create a web view (a browser) for the engine. 
-1. The engine, at initialisation, is passed a `Config` (satisfies [ConfigTrait]) by the main program. 
-1. The user interface will call `engine.initial_html()` and the engine must return an HTML string. 
-1. Then, for each user input, the user interface passes an Action (satisfies [ActionTrait]) to the engine using `engine.execute(action)` and the engine must return a Response (satisfies [ResponseTrait]) back to the user interface. 
-1. Also, for application event, the user interface passes an [Event] to the engine using `engine.execute(action)` and the engine must return a Response (satisfies [ResponseTrait]) back to the user interface. 
+1. At the start, the user interface will create a web view (a browser) for the engine.
+1. The engine, at initialisation, is passed a `Config` (satisfies [ConfigTrait]) by the main program.
+1. The user interface will call `engine.initial_html()` and the engine must return an HTML string.
+1. Then, for each user input, the user interface passes an Action (satisfies [ActionTrait]) to the engine using `engine.execute(action)` and the engine must return a Response (satisfies [ResponseTrait]) back to the user interface.
+1. Also, for application event, the user interface passes an [Event] to the engine using `engine.execute(action)` and the engine must return a Response (satisfies [ResponseTrait]) back to the user interface.
 1. At the end, the engine will return a response with `response.shutdown_required()` and the user interface will terminate the application.
 
 */
 use std::collections::HashMap;
 
 use anyhow::Result;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 /** The [EngineTrait] defines what an engine must be able to do. The associated types will need to be set by the application author in accordance with the specific needs of the application. See the wumpus example. */
 pub trait EngineTrait {
     /// the configuration paramaeters for the engine, satisfying [ConfigTrait].
@@ -42,18 +42,22 @@ pub trait EngineTrait {
     type Action;
     /// the response sent from the engine, satisfying [ResponseTrait].
     type Response;
-    /** `new` creates an Engine from a `config` and an [InterfaceType] */
-    fn new(config: &Self::Config, interface_type: InterfaceType) -> Result<Self>
+    // /** `new` creates an Engine from a `config` and an [InterfaceType] */
+    // fn new(config: &Self::Config, interface_type: InterfaceType) -> Result<Self>
+    // where
+    //     Self: Sized;
+    /** `new_from_json_config` creates an Engine from the JSON for a Config and an [InterfaceType] */
+    fn new_from_json_config(json_config: &str, interface_type: InterfaceType) -> Result<Self>
     where
         Self: Sized;
     /** `initial_html` provides the initial HTML for the web view. The HTML should provide the application's user interface including CSS and JavaScript. This Javascript (including `onclick` and similar) should:
-    
-* capture any user interface events (e.g. button clicks)
-  * construct an action including DOM input data
-  * cause `engine.execute(action)`
-  * understand the resulting response and update the user interface (DOM) accordingly
-* similarly for [Event]s
-     */
+
+    * capture any user interface events (e.g. button clicks)
+      * construct an action including DOM input data
+      * cause `engine.execute(action)`
+      * understand the resulting response and update the user interface (DOM) accordingly
+    * similarly for [Event]s
+         */
     fn initial_html(&mut self) -> Result<String>;
     /** `execute` executes the user command (Action) and returns a Response. */
     fn execute(&mut self, action: Self::Action) -> Result<Self::Response>;
@@ -74,9 +78,27 @@ pub trait ActionTrait {
     where
         Self: Sized;
 }
+/** An `ResponseKind`  describes the broad category of response. */
+#[derive(Debug, PartialEq, Eq, strum::Display, Clone, Serialize)]
+pub enum ResponseKind {
+    Normal,
+    Finished,
+    Error(String),
+}
+impl Default for ResponseKind {
+    fn default() -> Self {
+        ResponseKind::Normal
+    }
+}
 /** [ResponseTrait] is the requirements for a response (sent from the engine to the user interface). One possible response is that shutdown is required */
 pub trait ResponseTrait {
-    fn shutdown_required(&self) -> bool;
+    /// the broad category of response
+    fn kind(&self) -> ResponseKind;
+    fn shutdown_required(&self) -> bool {
+        self.kind() != ResponseKind::Normal
+    }
+    /// create a response that indicates an error condition
+    fn new_with_error(msg: &str) -> Self;
 }
 /** [Event]s are requirements for an event (generated by the execution environment and passed to the engine), for example app shutdown. Events are like actions but generated by the app not the user interface. There is a fixed list of [Event]s as they are based on the architecture of the platforms (PC, Android), but it may be necessary to add to the list e.g. to support other Android Activity events. */
 #[derive(Debug, Deserialize, Clone)]
